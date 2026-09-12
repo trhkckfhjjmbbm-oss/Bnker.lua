@@ -1,4 +1,4 @@
--- Barny: Бункер v30 (стол + рабочий КД порталов)
+-- Barny: Бункер v31 (КД работает + порталы вертикально)
 local Players = game:GetService("Players")
 local TS = game:GetService("TweenService")
 local RS = game:GetService("RunService")
@@ -9,8 +9,8 @@ local SavedPos = nil
 local PortalA = nil
 local PortalB = nil
 local NextPortal = "A"
-local LastPortalShot = 0 -- КД вынесен НАРУЖУ
-local PORTAL_CD = 1.5
+local LastPortalShot = 0
+local PORTAL_CD = 2 -- 2 секунды
 
 local function P(n, s, p, c, m, par, coll)
     local x = Instance.new("Part")
@@ -46,16 +46,20 @@ local function TP(t)
     f:Destroy()
 end
 
-local function CreatePortalVisual(parent, position, normal, name)
+-- ПОРТАЛ ВЕРТИКАЛЬНО
+local function CreatePortalVisual(parent, position, lookDir, name)
     local portal = Instance.new("Model")
     portal.Name = name
-    local lookCF = CFrame.lookAt(position, position + normal)
+    -- Строим CFrame так, чтобы портал "смотрел" на игрока (вертикально)
+    local lookCF = CFrame.lookAt(position, position + lookDir)
+    
     local disc = P("Disc", Vector3.new(0.4, 8, 8), position, Color3.fromRGB(20, 80, 20), Enum.Material.Neon, portal)
     disc.Shape = Enum.PartType.Cylinder
     disc.CFrame = lookCF * CFrame.Angles(0, 0, math.rad(90))
     disc.CanCollide = false
     disc.CanTouch = true
     disc.Transparency = 0.1
+    
     local swirl = P("Swirl", Vector3.new(0.3, 6.5, 6.5), position, Color3.fromRGB(50, 255, 50), Enum.Material.Neon, portal)
     swirl.Shape = Enum.PartType.Cylinder
     swirl.CFrame = disc.CFrame
@@ -157,21 +161,25 @@ local function MakePortalGunTool()
     gl.Range = 8
     gl.Brightness = 2
     gl.Parent = glow
-    
+
     tool.Activated:Connect(function()
-        -- КД работает всегда, не сбрасывается
-        if tick() - LastPortalShot < PORTAL_CD then
+        -- КД через os.clock()
+        local now = os.clock()
+        if now - LastPortalShot < PORTAL_CD then
+            local left = PORTAL_CD - (now - LastPortalShot)
             game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "⏳ КД", Text = "Подожди " .. string.format("%.1f", PORTAL_CD - (tick() - LastPortalShot)) .. " сек", Duration = 1
+                Title = "⏳ КД", Text = "Подожди " .. string.format("%.1f", left) .. " сек", Duration = 1
             })
             return
         end
-        LastPortalShot = tick()
-        
+        LastPortalShot = now
+
         local char = tool.Parent
         if not char then return end
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
+        
+        -- Направление от игрока (чтобы портал встал лицом к игроку)
         local origin = hrp.Position + Vector3.new(0, 2, 0)
         local direction = hrp.CFrame.LookVector * 50
         local params = RaycastParams.new()
@@ -179,15 +187,18 @@ local function MakePortalGunTool()
         params.FilterDescendantsInstances = {char}
         local result = workspace:Raycast(origin, direction, params)
         if not result then return end
+        
         local hitPos = result.Position
-        local hitNormal = result.Normal
+        -- ВСЕГДА вертикально: портал смотрит в сторону игрока
+        local lookDir = (hrp.Position - hitPos).Unit
+        
         if NextPortal == "A" then
             if PortalA and PortalA.Parent then PortalA:Destroy() end
-            PortalA = CreatePortalVisual(workspace, hitPos, hitNormal, "PortalA")
+            PortalA = CreatePortalVisual(workspace, hitPos, lookDir, "PortalA")
             NextPortal = "B"
         else
             if PortalB and PortalB.Parent then PortalB:Destroy() end
-            PortalB = CreatePortalVisual(workspace, hitPos, hitNormal, "PortalB")
+            PortalB = CreatePortalVisual(workspace, hitPos, lookDir, "PortalB")
             NextPortal = "A"
         end
         if PortalA and PortalB then
@@ -348,7 +359,6 @@ local function Create()
     if PortalA then PortalA:Destroy() PortalA = nil end
     if PortalB then PortalB:Destroy() PortalB = nil end
     NextPortal = "A"
-    -- НЕ сбрасываем LastPortalShot — КД сохраняется
     
     local b = Instance.new("Model")
     b.Name = "RickBunker"
@@ -371,14 +381,12 @@ local function Create()
         end
     end
 
-    -- СТОЛ
     local table1 = P("Table", Vector3.new(12,0.4,5), B+Vector3.new(0,3,-15), Color3.fromRGB(80,60,40), Enum.Material.Wood, b)
     P("T1", Vector3.new(0.5,3,0.5), B+Vector3.new(-5,1.5,-16.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
     P("T2", Vector3.new(0.5,3,0.5), B+Vector3.new(5,1.5,-16.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
     P("T3", Vector3.new(0.5,3,0.5), B+Vector3.new(-5,1.5,-13.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
     P("T4", Vector3.new(0.5,3,0.5), B+Vector3.new(5,1.5,-13.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
 
-    -- 2 Tool НА СТОЛЕ
     local tools = {
         {tool = MakePotionTool(), offset = Vector3.new(-2, 1.5, 0)},
         {tool = MakePortalGunTool(), offset = Vector3.new(2, 1.5, 0)},
@@ -469,7 +477,7 @@ local function Create()
     end)
 
     b.Parent = workspace
-    print("[Barny] Бункер v30 загружен")
+    print("[Barny] Бункер v31 загружен")
 end
 
 UIS.InputBegan:Connect(function(i, gp)
@@ -512,4 +520,4 @@ btn.MouseButton1Click:Connect(function()
     TP(B+Vector3.new(0,5,0))
 end)
 
-print("[Barny] v30 загружен (стол + КД порталов)")
+print("[Barny] v31 загружен (КД работает + вертикальные порталы)")
