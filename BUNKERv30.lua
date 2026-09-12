@@ -1,4 +1,4 @@
--- Barny: Бункер v33 (монитор на подставке + Tool'ы не левитируют)
+-- Barny: Бункер v33 (полный, доделанный)
 local Players = game:GetService("Players")
 local TS = game:GetService("TweenService")
 local RS = game:GetService("RunService")
@@ -9,8 +9,7 @@ local SavedPos = nil
 local PortalA = nil
 local PortalB = nil
 local NextPortal = "A"
-local LastTeleport = 0
-local TELEPORT_CD = 2
+local LastTP = 0
 
 local function P(n, s, p, c, m, par, coll)
     local x = Instance.new("Part")
@@ -46,262 +45,237 @@ local function TP(t)
     f:Destroy()
 end
 
--- ПОРТАЛЫ
-local function CreatePortalVisual(parent, position, lookDir, name)
-    local portal = Instance.new("Model")
-    portal.Name = name
-    local lookCF = CFrame.lookAt(position, position + lookDir)
-    local disc = P("Disc", Vector3.new(0.4, 8, 8), position, Color3.fromRGB(20, 80, 20), Enum.Material.Neon, portal)
-    disc.Shape = Enum.PartType.Cylinder
-    disc.CFrame = lookCF * CFrame.Angles(0, 0, math.rad(90))
-    disc.CanCollide = false
-    disc.CanTouch = true
-    disc.Transparency = 0.1
-    local swirl = P("Swirl", Vector3.new(0.3, 6.5, 6.5), position, Color3.fromRGB(50, 255, 50), Enum.Material.Neon, portal)
-    swirl.Shape = Enum.PartType.Cylinder
-    swirl.CFrame = disc.CFrame
-    swirl.CanCollide = false
-    swirl.CanTouch = false
-    swirl.Transparency = 0.2
+-- ПОРТАЛ
+local function CreatePortal(parent, pos, dir, name)
+    local m = Instance.new("Model")
+    m.Name = name
+    local cf = CFrame.lookAt(pos, pos + dir)
+    local d = P("Disc", Vector3.new(0.4, 8, 8), pos, Color3.fromRGB(20,80,20), Enum.Material.Neon, m)
+    d.Shape = Enum.PartType.Cylinder
+    d.CFrame = cf * CFrame.Angles(0,0,math.rad(90))
+    d.CanCollide = false
+    d.CanTouch = true
+    d.Transparency = 0.1
+    local s = P("Swirl", Vector3.new(0.3, 6.5, 6.5), pos, Color3.fromRGB(50,255,50), Enum.Material.Neon, m)
+    s.Shape = Enum.PartType.Cylinder
+    s.CFrame = cf * CFrame.Angles(0,0,math.rad(90))
+    s.CanCollide = false
+    s.CanTouch = false
+    s.Transparency = 0.2
     task.spawn(function()
-        local spin = 0
-        while swirl.Parent do
-            spin = spin + 0.08
-            swirl.CFrame = disc.CFrame * CFrame.Angles(0, 0, spin)
+        local sp = 0
+        while s.Parent do
+            sp = sp + 0.08
+            s.CFrame = cf * CFrame.Angles(0,0,math.rad(90)+sp)
             RS.Heartbeat:Wait()
         end
     end)
-    local light = Instance.new("PointLight")
-    light.Color = Color3.fromRGB(0, 255, 0)
-    light.Range = 20
-    light.Brightness = 5
-    light.Parent = disc
-    local ring = P("Ring", Vector3.new(0.5, 9, 9), position, Color3.fromRGB(0, 200, 0), Enum.Material.Neon, portal)
-    ring.Shape = Enum.PartType.Cylinder
-    ring.CFrame = lookCF * CFrame.Angles(0, 0, math.rad(90))
-    ring.CanCollide = false
-    ring.CanTouch = false
-    ring.Transparency = 0.3
-    portal.PrimaryPart = disc
-    portal.Parent = parent
-    return portal, disc
+    local l = Instance.new("PointLight")
+    l.Color = Color3.fromRGB(0,255,0)
+    l.Range = 20
+    l.Brightness = 5
+    l.Parent = d
+    local r = P("Ring", Vector3.new(0.5, 9, 9), pos, Color3.fromRGB(0,200,0), Enum.Material.Neon, m)
+    r.Shape = Enum.PartType.Cylinder
+    r.CFrame = cf * CFrame.Angles(0,0,math.rad(90))
+    r.CanCollide = false
+    r.CanTouch = false
+    r.Transparency = 0.3
+    m.PrimaryPart = d
+    m.Parent = parent
+    return m, d
 end
 
-local function SetupTeleport(portal, targetPortal)
-    local disc = portal:FindFirstChild("Disc")
-    if not disc then return end
-    disc.Touched:Connect(function(hit)
+local function TPSetup(portal, target)
+    local d = portal:FindFirstChild("Disc")
+    if not d then return end
+    d.Touched:Connect(function(hit)
         local char = hit.Parent
         if not char then return end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
         if char ~= LP.Character then return end
         local now = os.clock()
-        if now - LastTeleport < TELEPORT_CD then
-            local left = TELEPORT_CD - (now - LastTeleport)
-            game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "⏳ ТЕЛЕПОРТ", Text = "Подожди " .. string.format("%.1f", left) .. " сек", Duration = 1
-            })
-            return
-        end
-        LastTeleport = now
-        local targetDisc = targetPortal and targetPortal:FindFirstChild("Disc")
-        if not targetDisc then return end
+        if now - LastTP < 2 then return end
+        LastTP = now
+        local td = target and target:FindFirstChild("Disc")
+        if not td then return end
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp then
-            hrp.CFrame = targetDisc.CFrame * CFrame.new(0, 0, -4)
+            hrp.CFrame = td.CFrame * CFrame.new(0, 0, -4)
             hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
         end
     end)
 end
 
--- МОДЕЛИ ДЛЯ ОТОБРАЖЕНИЯ (лежат на столе)
-local function MakePotionDisplay(parent, pos)
-    local m = Instance.new("Model")
-    m.Name = "PotionDisplay"
-    local flask = P("Flask", Vector3.new(0.8, 1.2, 0.8), pos, Color3.fromRGB(255, 50, 50), Enum.Material.Glass, m)
-    flask.Shape = Enum.PartType.Cylinder
-    flask.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.rad(90))
-    flask.Transparency = 0.3
-    flask.CanCollide = false
-    local neck = P("Neck", Vector3.new(0.4, 0.6, 0.4), pos + Vector3.new(1, 0, 0), Color3.fromRGB(255, 50, 50), Enum.Material.Glass, m)
-    neck.Transparency = 0.3
-    neck.CanCollide = false
-    local cap = P("Cap", Vector3.new(0.5, 0.3, 0.5), pos + Vector3.new(1.4, 0, 0), Color3.fromRGB(80, 50, 20), Enum.Material.Wood, m)
-    cap.CanCollide = false
-    m.PrimaryPart = flask
-    m.Parent = parent
-    return m
-end
-
-local function MakePortalGunDisplay(parent, pos)
-    local m = Instance.new("Model")
-    m.Name = "PortalGunDisplay"
-    local handle = P("Handle", Vector3.new(0.4, 1, 0.4), pos, Color3.fromRGB(200, 200, 200), Enum.Material.Metal, m)
-    handle.CanCollide = false
-    local body = P("Body", Vector3.new(0.6, 0.7, 2), pos + Vector3.new(0, 0.5, -1), Color3.fromRGB(180, 180, 180), Enum.Material.Metal, m)
-    body.CanCollide = false
-    local barrel = P("Barrel", Vector3.new(0.5, 0.5, 1), pos + Vector3.new(0, 0.5, -2.5), Color3.fromRGB(150, 150, 150), Enum.Material.Metal, m)
-    barrel.CanCollide = false
-    local glow = P("Glow", Vector3.new(0.7, 0.7, 0.7), pos + Vector3.new(0, 0.5, -3.2), Color3.fromRGB(0, 255, 100), Enum.Material.Neon, m)
-    glow.Shape = Enum.PartType.Ball
-    glow.CanCollide = false
-    m.PrimaryPart = handle
-    m.Parent = parent
-    return m
-end
-
--- TOOL (то, что попадает в руки)
-local function MakePortalGunTool()
-    local tool = Instance.new("Tool")
-    tool.Name = "ПортальнаяПушка"
-    tool.RequiresHandle = true
-    local handle = Instance.new("Part")
-    handle.Name = "Handle"
-    handle.Size = Vector3.new(0.4, 1, 0.4)
-    handle.Color = Color3.fromRGB(200, 200, 200)
-    handle.Material = Enum.Material.Metal
-    handle.Parent = tool
-    local body = Instance.new("Part")
-    body.Name = "Body"
-    body.Size = Vector3.new(0.6, 0.7, 2)
-    body.Color = Color3.fromRGB(180, 180, 180)
-    body.Material = Enum.Material.Metal
-    body.CFrame = handle.CFrame * CFrame.new(0, 0.5, -1)
-    body.Parent = tool
+-- ПУШКА
+local function MakeGun()
+    local t = Instance.new("Tool")
+    t.Name = "ПортальнаяПушка"
+    t.RequiresHandle = true
+    local h = Instance.new("Part")
+    h.Name = "Handle"
+    h.Size = Vector3.new(0.4, 1, 0.4)
+    h.Color = Color3.fromRGB(200,200,200)
+    h.Material = Enum.Material.Metal
+    h.Parent = t
+    local b = Instance.new("Part")
+    b.Name = "Body"
+    b.Size = Vector3.new(0.6, 0.7, 2)
+    b.Color = Color3.fromRGB(180,180,180)
+    b.Material = Enum.Material.Metal
+    b.CFrame = h.CFrame * CFrame.new(0, 0.5, -1)
+    b.Parent = t
     local w1 = Instance.new("Weld")
-    w1.Part0 = handle
-    w1.Part1 = body
+    w1.Part0 = h
+    w1.Part1 = b
     w1.C0 = CFrame.new(0, 0.5, -1)
-    w1.Parent = handle
+    w1.Parent = h
     local barrel = Instance.new("Part")
     barrel.Name = "Barrel"
     barrel.Size = Vector3.new(0.5, 0.5, 1)
-    barrel.Color = Color3.fromRGB(150, 150, 150)
+    barrel.Color = Color3.fromRGB(150,150,150)
     barrel.Material = Enum.Material.Metal
-    barrel.CFrame = body.CFrame * CFrame.new(0, 0, -1.5)
-    barrel.Parent = tool
+    barrel.CFrame = b.CFrame * CFrame.new(0, 0, -1.5)
+    barrel.Parent = t
     local w2 = Instance.new("Weld")
-    w2.Part0 = handle
+    w2.Part0 = h
     w2.Part1 = barrel
     w2.C0 = CFrame.new(0, 0.5, -2.5)
-    w2.Parent = handle
-    local glow = Instance.new("Part")
-    glow.Name = "Glow"
-    glow.Size = Vector3.new(0.7, 0.7, 0.7)
-    glow.Color = Color3.fromRGB(0, 255, 100)
-    glow.Material = Enum.Material.Neon
-    glow.Shape = Enum.PartType.Ball
-    glow.CFrame = barrel.CFrame * CFrame.new(0, 0, -0.7)
-    glow.Parent = tool
+    w2.Parent = h
+    local gl = Instance.new("Part")
+    gl.Name = "Glow"
+    gl.Size = Vector3.new(0.7, 0.7, 0.7)
+    gl.Color = Color3.fromRGB(0,255,100)
+    gl.Material = Enum.Material.Neon
+    gl.Shape = Enum.PartType.Ball
+    gl.CFrame = barrel.CFrame * CFrame.new(0, 0, -0.7)
+    gl.Parent = t
     local w3 = Instance.new("Weld")
-    w3.Part0 = handle
-    w3.Part1 = glow
+    w3.Part0 = h
+    w3.Part1 = gl
     w3.C0 = CFrame.new(0, 0.5, -3.2)
-    w3.Parent = handle
-    local gl = Instance.new("PointLight")
-    gl.Color = Color3.fromRGB(0, 255, 100)
-    gl.Range = 8
-    gl.Brightness = 2
-    gl.Parent = glow
-    tool.Activated:Connect(function()
-        local char = tool.Parent
+    w3.Parent = h
+    local glt = Instance.new("PointLight")
+    glt.Color = Color3.fromRGB(0,255,100)
+    glt.Range = 8
+    glt.Brightness = 2
+    glt.Parent = gl
+    t.Activated:Connect(function()
+        local char = t.Parent
         if not char then return end
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
         local origin = hrp.Position + Vector3.new(0, 2, 0)
-        local direction = hrp.CFrame.LookVector * 50
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = {char}
-        local result = workspace:Raycast(origin, direction, params)
-        if not result then return end
-        local hitPos = result.Position
-        local lookDir = (hrp.Position - hitPos).Unit
+        local dir = hrp.CFrame.LookVector * 50
+        local rp = RaycastParams.new()
+        rp.FilterType = Enum.RaycastFilterType.Exclude
+        rp.FilterDescendantsInstances = {char}
+        local res = workspace:Raycast(origin, dir, rp)
+        if not res then return end
+        local hp = res.Position
+        local ld = (hrp.Position - hp).Unit
         if NextPortal == "A" then
             if PortalA and PortalA.Parent then PortalA:Destroy() end
-            PortalA = CreatePortalVisual(workspace, hitPos, lookDir, "PortalA")
+            PortalA = CreatePortal(workspace, hp, ld, "A")
             NextPortal = "B"
         else
             if PortalB and PortalB.Parent then PortalB:Destroy() end
-            PortalB = CreatePortalVisual(workspace, hitPos, lookDir, "PortalB")
+            PortalB = CreatePortal(workspace, hp, ld, "B")
             NextPortal = "A"
         end
         if PortalA and PortalB then
-            SetupTeleport(PortalA, PortalB)
-            SetupTeleport(PortalB, PortalA)
+            TPSetup(PortalA, PortalB)
+            TPSetup(PortalB, PortalA)
         end
     end)
-    return tool
+    return t
 end
 
-local function MakePotionTool()
-    local tool = Instance.new("Tool")
-    tool.Name = "ЗельеБезумия"
-    tool.RequiresHandle = true
-    local handle = Instance.new("Part")
-    handle.Name = "Handle"
-    handle.Size = Vector3.new(0.8, 1.2, 0.8)
-    handle.Shape = Enum.PartType.Cylinder
-    handle.Color = Color3.fromRGB(255, 50, 50)
-    handle.Material = Enum.Material.Glass
-    handle.Transparency = 0.3
-    handle.Parent = tool
-    tool.Activated:Connect(function()
-        local char = tool.Parent
+-- ЗЕЛЬЕ
+local function MakePotion()
+    local t = Instance.new("Tool")
+    t.Name = "ЗельеБезумия"
+    t.RequiresHandle = true
+    local h = Instance.new("Part")
+    h.Name = "Handle"
+    h.Size = Vector3.new(0.8, 1.2, 0.8)
+    h.Shape = Enum.PartType.Cylinder
+    h.Color = Color3.fromRGB(255,50,50)
+    h.Material = Enum.Material.Glass
+    h.Transparency = 0.3
+    h.Parent = t
+    local n = Instance.new("Part")
+    n.Name = "Neck"
+    n.Size = Vector3.new(0.4, 0.6, 0.4)
+    n.Color = Color3.fromRGB(255,50,50)
+    n.Material = Enum.Material.Glass
+    n.Transparency = 0.3
+    n.CFrame = h.CFrame * CFrame.new(0, 1, 0)
+    n.Parent = t
+    local w = Instance.new("Weld")
+    w.Part0 = h
+    w.Part1 = n
+    w.C0 = CFrame.new(0, 1, 0)
+    w.Parent = h
+    local cap = Instance.new("Part")
+    cap.Name = "Cap"
+    cap.Size = Vector3.new(0.5, 0.3, 0.5)
+    cap.Color = Color3.fromRGB(80,50,20)
+    cap.Material = Enum.Material.Wood
+    cap.CFrame = n.CFrame * CFrame.new(0, 0.5, 0)
+    cap.Parent = t
+    local w2 = Instance.new("Weld")
+    w2.Part0 = h
+    w2.Part1 = cap
+    w2.C0 = CFrame.new(0, 1.5, 0)
+    w2.Parent = h
+    t.Activated:Connect(function()
+        local char = t.Parent
         if not char then return end
         local hum = char:FindFirstChildOfClass("Humanoid")
         if not hum then return end
-        local oldSpeed = hum.WalkSpeed
-        local oldJump = hum.JumpPower
+        local old = hum.WalkSpeed
         hum.WalkSpeed = 40
-        hum.JumpPower = 100
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            local glow = Instance.new("PointLight")
-            glow.Color = Color3.fromRGB(255, 100, 255)
-            glow.Range = 15
-            glow.Brightness = 3
-            glow.Parent = hrp
-            game:GetService("StarterGui"):SetCore("SendNotification", {Title="🧪 ЗЕЛЬЕ", Text="Скорость + Прыжок (10 сек)", Duration=3})
-            task.wait(10)
-            if hum then
-                hum.WalkSpeed = oldSpeed
-                hum.JumpPower = oldJump
-            end
-            if glow then glow:Destroy() end
-        end
+        task.wait(10)
+        if hum then hum.WalkSpeed = old end
     end)
-    return tool
+    return t
+end
+
+-- ДИСПЛЕИ (модели, которые лежат на столе)
+local function MakePotionDisplay(parent, pos)
+    local m = Instance.new("Model")
+    m.Name = "PotionDisplay"
+    local flask = P("Flask", Vector3.new(0.8, 1.2, 0.8), pos, Color3.fromRGB(255,50,50), Enum.Material.Glass, m)
+    flask.Shape = Enum.PartType.Cylinder
+    flask.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.rad(90))
+    flask.Transparency = 0.3
+    flask.CanCollide = false
+    local cap = P("Cap", Vector3.new(0.5, 0.3, 0.5), pos + Vector3.new(0, 1, 0), Color3.fromRGB(80,50,20), Enum.Material.Wood, m)
+    cap.CanCollide = false
+    m.Parent = parent
+    return m
+end
+
+local function MakeGunDisplay(parent, pos)
+    local m = Instance.new("Model")
+    m.Name = "GunDisplay"
+    local handle = P("Handle", Vector3.new(0.4, 1, 0.4), pos, Color3.fromRGB(200,200,200), Enum.Material.Metal, m)
+    handle.CanCollide = false
+    local body = P("Body", Vector3.new(0.6, 0.7, 2), pos + Vector3.new(0, 0.5, -1), Color3.fromRGB(180,180,180), Enum.Material.Metal, m)
+    body.CanCollide = false
+    local barrel = P("Barrel", Vector3.new(0.5, 0.5, 1), pos + Vector3.new(0, 0.5, -2.5), Color3.fromRGB(150,150,150), Enum.Material.Metal, m)
+    barrel.CanCollide = false
+    local glow = P("Glow", Vector3.new(0.7, 0.7, 0.7), pos + Vector3.new(0, 0.5, -3.2), Color3.fromRGB(0,255,100), Enum.Material.Neon, m)
+    glow.Shape = Enum.PartType.Ball
+    glow.CanCollide = false
+    m.Parent = parent
+    return m
 end
 
 -- МОНИТОР С ПОДСТАВКОЙ
-local Screens = {
-    {n="STATUS", c=Color3.fromRGB(0,150,0)},
-    {n="MAP", c=Color3.fromRGB(0,50,150)},
-    {n="PORTAL", c=Color3.fromRGB(150,0,150)},
-    {n="OFFLINE", c=Color3.fromRGB(20,20,20)},
-}
-
-local function GetInfo(n)
-    if n == "STATUS" then return "PLAYERS: "..#Players:GetPlayers().."\nTOOLS: 2"
-    elseif n == "MAP" then
-        local c = LP.Character
-        if c and c:FindFirstChild("HumanoidRootPart") then
-            local p = c.HumanoidRootPart.Position
-            return string.format("X:%.0f Y:%.0f\nZ:%.0f", p.X, p.Y, p.Z)
-        end
-        return "NO SIGNAL"
-    elseif n == "PORTAL" then return "PORTAL A: "..(PortalA and "OK" or "NO").."\nPORTAL B: "..(PortalB and "OK" or "NO")
-    else return "OFFLINE" end
-end
-
 local function CreateMonitor(parent, bp)
-    -- Подставка (столб)
     local pole = P("MonPole", Vector3.new(0.5, 5, 0.5), bp + Vector3.new(-15, 2.5, -18), Color3.fromRGB(40,40,40), Enum.Material.Metal, parent)
-    -- Основание
     local base = P("MonBase", Vector3.new(2, 0.3, 2), bp + Vector3.new(-15, 0.15, -18), Color3.fromRGB(30,30,30), Enum.Material.Metal, parent)
-    -- Сам монитор на высоте 5
     local mp = bp + Vector3.new(-15, 6, -18)
     local m = P("Mon", Vector3.new(4,3,0.4), mp, Color3.fromRGB(20,20,20), Enum.Material.SmoothPlastic, parent)
     m.CanCollide = false
@@ -311,13 +285,13 @@ local function CreateMonitor(parent, bp)
     sg.Parent = m
     local fr = Instance.new("Frame")
     fr.Size = UDim2.new(1,0,1,0)
-    fr.BackgroundColor3 = Screens[1].c
+    fr.BackgroundColor3 = Color3.fromRGB(0,150,0)
     fr.Parent = sg
     local ti = Instance.new("TextLabel")
     ti.Size = UDim2.new(1,0,0.25,0)
     ti.BackgroundTransparency = 0.5
     ti.BackgroundColor3 = Color3.fromRGB(0,0,0)
-    ti.Text = Screens[1].n
+    ti.Text = "STATUS"
     ti.TextColor3 = Color3.fromRGB(0,255,0)
     ti.Font = Enum.Font.Code
     ti.TextScaled = true
@@ -326,16 +300,22 @@ local function CreateMonitor(parent, bp)
     inf.Size = UDim2.new(1,0,0.5,0)
     inf.Position = UDim2.new(0,0,0.27,0)
     inf.BackgroundTransparency = 1
-    inf.Text = GetInfo(Screens[1].n)
+    inf.Text = "PLAYERS: "..#Players:GetPlayers().."\nTOOLS: 2"
     inf.TextColor3 = Color3.fromRGB(0,255,0)
     inf.Font = Enum.Font.Code
     inf.TextSize = 40
     inf.TextWrapped = true
     inf.Parent = fr
     local ci = 1
+    local screens = {
+        {n="STATUS", c=Color3.fromRGB(0,150,0), i="PLAYERS: "..#Players:GetPlayers().."\nTOOLS: 2"},
+        {n="MAP", c=Color3.fromRGB(0,50,150), i="X:0 Y:0\nZ:0"},
+        {n="PORTAL", c=Color3.fromRGB(150,0,150), i="PORTAL A: OK\nPORTAL B: OK"},
+        {n="OFFLINE", c=Color3.fromRGB(20,20,20), i="OFFLINE"},
+    }
     task.spawn(function()
         while fr.Parent do
-            inf.Text = GetInfo(Screens[ci].n)
+            inf.Text = screens[ci].i
             task.wait(0.5)
         end
     end)
@@ -350,12 +330,12 @@ local function CreateMonitor(parent, bp)
         bg.TextScaled = true
         bg.Parent = fr
         bg.MouseButton1Click:Connect(function()
-            if b == 1 then ci = ci + 1 if ci > #Screens then ci = 1 end
-            elseif b == 2 then ci = ci - 1 if ci < 1 then ci = #Screens end
-            else ci = math.random(1, #Screens) end
-            fr.BackgroundColor3 = Screens[ci].c
-            ti.Text = Screens[ci].n
-            inf.Text = GetInfo(Screens[ci].n)
+            if b == 1 then ci = ci + 1 if ci > #screens then ci = 1 end
+            elseif b == 2 then ci = ci - 1 if ci < 1 then ci = #screens end
+            else ci = math.random(1, #screens) end
+            fr.BackgroundColor3 = screens[ci].c
+            ti.Text = screens[ci].n
+            inf.Text = screens[ci].i
         end)
     end
 end
@@ -387,34 +367,30 @@ local function Create()
         end
     end
 
-    -- СТОЛ
     local table1 = P("Table", Vector3.new(12,0.4,5), B+Vector3.new(0,3,-15), Color3.fromRGB(80,60,40), Enum.Material.Wood, b)
     P("T1", Vector3.new(0.5,3,0.5), B+Vector3.new(-5,1.5,-16.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
     P("T2", Vector3.new(0.5,3,0.5), B+Vector3.new(5,1.5,-16.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
     P("T3", Vector3.new(0.5,3,0.5), B+Vector3.new(-5,1.5,-13.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
     P("T4", Vector3.new(0.5,3,0.5), B+Vector3.new(5,1.5,-13.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
 
-    -- ДИСПЛЕИ (модели) на столе — НЕ ЛЕВИТИРУЮТ
-    local potionDisplayPos = B + Vector3.new(-2, 3.5, -15)
-    local gunDisplayPos = B + Vector3.new(2, 3.5, -15)
-    MakePotionDisplay(b, potionDisplayPos)
-    MakePortalGunDisplay(b, gunDisplayPos)
+    -- ДИСПЛЕИ
+    MakePotionDisplay(b, B + Vector3.new(-2, 3.5, -15))
+    MakeGunDisplay(b, B + Vector3.new(2, 3.5, -15))
 
-    -- CLICK DETECTOR для взятия
-    local potionStand = P("PotionStand", Vector3.new(1.5, 1.5, 1.5), potionDisplayPos, Color3.fromRGB(100,100,100), Enum.Material.SmoothPlastic, b)
+    -- ClickDetector для взятия
+    local potionStand = P("PotionStand", Vector3.new(1.5, 2, 1.5), B+Vector3.new(-2, 4, -15), Color3.fromRGB(100,100,100), Enum.Material.SmoothPlastic, b)
     potionStand.Transparency = 1
     potionStand.CanCollide = false
     local potionClick = Instance.new("ClickDetector")
     potionClick.MaxActivationDistance = 12
     potionClick.Parent = potionStand
-    local potionTool = MakePotionTool()
-    potionTool.Parent = workspace
+    local potionTool = MakePotion()
+    potionTool.Parent = b
     potionTool.Handle.CFrame = CFrame.new(0, -1000, 0)
     potionClick.MouseClick:Connect(function(player)
         local backpack = player:FindFirstChild("Backpack")
         if backpack then
             potionTool.Parent = backpack
-            potionStand.Transparency = 1
             local c = player.Character
             if c then
                 local hu = c:FindFirstChildOfClass("Humanoid")
@@ -423,20 +399,19 @@ local function Create()
         end
     end)
 
-    local gunStand = P("GunStand", Vector3.new(2, 1.5, 4), gunDisplayPos, Color3.fromRGB(100,100,100), Enum.Material.SmoothPlastic, b)
+    local gunStand = P("GunStand", Vector3.new(2.5, 2, 4), B+Vector3.new(2, 4, -15), Color3.fromRGB(100,100,100), Enum.Material.SmoothPlastic, b)
     gunStand.Transparency = 1
     gunStand.CanCollide = false
     local gunClick = Instance.new("ClickDetector")
     gunClick.MaxActivationDistance = 12
     gunClick.Parent = gunStand
-    local gunTool = MakePortalGunTool()
-    gunTool.Parent = workspace
+    local gunTool = MakeGun()
+    gunTool.Parent = b
     gunTool.Handle.CFrame = CFrame.new(0, -1000, 0)
     gunClick.MouseClick:Connect(function(player)
         local backpack = player:FindFirstChild("Backpack")
         if backpack then
             gunTool.Parent = backpack
-            gunStand.Transparency = 1
             local c = player.Character
             if c then
                 local hu = c:FindFirstChildOfClass("Humanoid")
@@ -491,7 +466,6 @@ local function Create()
         sleeping = false
     end)
 
-    -- Монитор с подставкой
     CreateMonitor(b, B)
 
     local exitPortal = P("ExitPortal", Vector3.new(0.4,10,10), B+Vector3.new(25,5,25), Color3.fromRGB(0,255,0), Enum.Material.Neon, b)
@@ -503,4 +477,52 @@ local function Create()
         if h.Parent == LP.Character then
             local c = LP.Character
             local hrp = c:FindFirstChild("HumanoidRootPart")
-            if hrp 
+            if hrp then hrp.CFrame = CFrame.new(SavedPos or Vector3.new(0,5,0)) end
+        end
+    end)
+
+    b.Parent = workspace
+    print("[Barny] Бункер v33 загружен")
+end
+
+UIS.InputBegan:Connect(function(i, gp)
+    if gp then return end
+    if i.KeyCode == Enum.KeyCode.B then
+        local c = LP.Character
+        if not c then return end
+        local hr = c:FindFirstChild("HumanoidRootPart")
+        if not hr then return end
+        SavedPos = hr.Position
+        Create()
+        TP(B+Vector3.new(0,5,0))
+    end
+end)
+
+local sg = Instance.new("ScreenGui")
+sg.Name = "BG"
+sg.ResetOnSpawn = false
+sg.Parent = LP:WaitForChild("PlayerGui")
+
+local btn = Instance.new("TextButton")
+btn.Size = UDim2.new(0,130,0,35)
+btn.Position = UDim2.new(0,5,0,50)
+btn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+btn.Text = "БУНКЕР [B]"
+btn.TextColor3 = Color3.fromRGB(0,255,0)
+btn.Font = Enum.Font.Code
+btn.TextSize = 12
+btn.Parent = sg
+local c = Instance.new("UICorner")
+c.CornerRadius = UDim.new(0,8)
+c.Parent = btn
+btn.MouseButton1Click:Connect(function()
+    local ch = LP.Character
+    if not ch then return end
+    local hr = ch:FindFirstChild("HumanoidRootPart")
+    if not hr then return end
+    SavedPos = hr.Position
+    Create()
+    TP(B+Vector3.new(0,5,0))
+end)
+
+print("[Barny] v33 загружен (полный)")
