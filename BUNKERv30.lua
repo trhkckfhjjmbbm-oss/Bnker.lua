@@ -1,4 +1,4 @@
--- Barny: Бункер v29 (без Рика и стола)
+-- Barny: Бункер v30 (стол + рабочий КД порталов)
 local Players = game:GetService("Players")
 local TS = game:GetService("TweenService")
 local RS = game:GetService("RunService")
@@ -9,7 +9,8 @@ local SavedPos = nil
 local PortalA = nil
 local PortalB = nil
 local NextPortal = "A"
-local PortalCooldown = false
+local LastPortalShot = 0 -- КД вынесен НАРУЖУ
+local PORTAL_CD = 1.5
 
 local function P(n, s, p, c, m, par, coll)
     local x = Instance.new("Part")
@@ -156,20 +157,28 @@ local function MakePortalGunTool()
     gl.Range = 8
     gl.Brightness = 2
     gl.Parent = glow
+    
     tool.Activated:Connect(function()
-        if PortalCooldown then return end
-        PortalCooldown = true
+        -- КД работает всегда, не сбрасывается
+        if tick() - LastPortalShot < PORTAL_CD then
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "⏳ КД", Text = "Подожди " .. string.format("%.1f", PORTAL_CD - (tick() - LastPortalShot)) .. " сек", Duration = 1
+            })
+            return
+        end
+        LastPortalShot = tick()
+        
         local char = tool.Parent
-        if not char then PortalCooldown = false return end
+        if not char then return end
         local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then PortalCooldown = false return end
+        if not hrp then return end
         local origin = hrp.Position + Vector3.new(0, 2, 0)
         local direction = hrp.CFrame.LookVector * 50
         local params = RaycastParams.new()
         params.FilterType = Enum.RaycastFilterType.Exclude
         params.FilterDescendantsInstances = {char}
         local result = workspace:Raycast(origin, direction, params)
-        if not result then PortalCooldown = false return end
+        if not result then return end
         local hitPos = result.Position
         local hitNormal = result.Normal
         if NextPortal == "A" then
@@ -185,8 +194,6 @@ local function MakePortalGunTool()
             SetupTeleport(PortalA, PortalB)
             SetupTeleport(PortalB, PortalA)
         end
-        task.wait(1.5)
-        PortalCooldown = false
     end)
     return tool
 end
@@ -341,18 +348,18 @@ local function Create()
     if PortalA then PortalA:Destroy() PortalA = nil end
     if PortalB then PortalB:Destroy() PortalB = nil end
     NextPortal = "A"
-    PortalCooldown = false
+    -- НЕ сбрасываем LastPortalShot — КД сохраняется
     
     local b = Instance.new("Model")
     b.Name = "RickBunker"
-    
+
     P("Floor", Vector3.new(60,1,60), B, Color3.fromRGB(60,60,60), Enum.Material.Concrete, b)
     P("Ceil", Vector3.new(60,1,60), B+Vector3.new(0,20,0), Color3.fromRGB(40,40,40), Enum.Material.Metal, b)
     P("W1", Vector3.new(60,20,1), B+Vector3.new(0,10,-30), Color3.fromRGB(50,50,50), Enum.Material.Concrete, b)
     P("W2", Vector3.new(60,20,1), B+Vector3.new(0,10,30), Color3.fromRGB(50,50,50), Enum.Material.Concrete, b)
     P("W3", Vector3.new(1,20,60), B+Vector3.new(-30,10,0), Color3.fromRGB(50,50,50), Enum.Material.Concrete, b)
     P("W4", Vector3.new(1,20,60), B+Vector3.new(30,10,0), Color3.fromRGB(50,50,50), Enum.Material.Concrete, b)
-    
+
     for x = -1, 1, 2 do
         for z = -1, 1, 2 do
             local lp = P("L", Vector3.new(3,0.3,3), B+Vector3.new(x*20,19,z*20), Color3.fromRGB(255,250,220), Enum.Material.Neon, b)
@@ -363,14 +370,21 @@ local function Create()
             l.Parent = lp
         end
     end
-    
-    -- 2 Tool на подставках (БЕЗ СТОЛА)
+
+    -- СТОЛ
+    local table1 = P("Table", Vector3.new(12,0.4,5), B+Vector3.new(0,3,-15), Color3.fromRGB(80,60,40), Enum.Material.Wood, b)
+    P("T1", Vector3.new(0.5,3,0.5), B+Vector3.new(-5,1.5,-16.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
+    P("T2", Vector3.new(0.5,3,0.5), B+Vector3.new(5,1.5,-16.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
+    P("T3", Vector3.new(0.5,3,0.5), B+Vector3.new(-5,1.5,-13.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
+    P("T4", Vector3.new(0.5,3,0.5), B+Vector3.new(5,1.5,-13.5), Color3.fromRGB(60,40,20), Enum.Material.Wood, b)
+
+    -- 2 Tool НА СТОЛЕ
     local tools = {
-        {tool = MakePotionTool(), pos = B + Vector3.new(-5, 4, -15)},
-        {tool = MakePortalGunTool(), pos = B + Vector3.new(5, 4, -15)},
+        {tool = MakePotionTool(), offset = Vector3.new(-2, 1.5, 0)},
+        {tool = MakePortalGunTool(), offset = Vector3.new(2, 1.5, 0)},
     }
     for _, data in ipairs(tools) do
-        local stand = P("Stand_"..data.tool.Name, Vector3.new(1.2,1.2,1.2), data.pos, Color3.fromRGB(100,100,100), Enum.Material.SmoothPlastic, b)
+        local stand = P("Stand_"..data.tool.Name, Vector3.new(1.2,1.2,1.2), table1.Position + data.offset, Color3.fromRGB(100,100,100), Enum.Material.SmoothPlastic, b)
         stand.CanCollide = false
         data.tool.Parent = b
         data.tool.Handle.CFrame = CFrame.new(stand.Position + Vector3.new(0,1.5,0))
@@ -392,7 +406,7 @@ local function Create()
             end
         end)
     end
-    
+
     local tpBtn = P("TPButton", Vector3.new(3,1,3), B+Vector3.new(10,1,10), Color3.fromRGB(0,100,0), Enum.Material.Neon, b)
     local tpClick = Instance.new("ClickDetector")
     tpClick.MaxActivationDistance = 10
@@ -404,7 +418,7 @@ local function Create()
             if hrp then hrp.CFrame = CFrame.new(B+Vector3.new(0,5,0)) end
         end
     end)
-    
+
     local fr = P("Fridge", Vector3.new(2.5,6,3), B+Vector3.new(20,3,15), Color3.fromRGB(200,200,200), Enum.Material.Metal, b)
     local frOpened = false
     fr.Touched:Connect(function(h)
@@ -419,7 +433,7 @@ local function Create()
         task.wait(3)
         frOpened = false
     end)
-    
+
     local bed = P("Bed", Vector3.new(3,0.5,6), B+Vector3.new(-20,1.5,15), Color3.fromRGB(80,60,40), Enum.Material.Wood, b)
     P("Mattress", Vector3.new(2.8,0.6,5.8), B+Vector3.new(-20,2,15), Color3.fromRGB(240,240,240), Enum.Material.Fabric, b)
     local bedTrigger = P("BedTrigger", Vector3.new(4,3,7), bed.Position+Vector3.new(0,2,0), Color3.fromRGB(255,255,255), Enum.Material.SmoothPlastic, b)
@@ -438,9 +452,9 @@ local function Create()
         task.wait(3)
         sleeping = false
     end)
-    
+
     CreateMonitor(b, B)
-    
+
     local exitPortal = P("ExitPortal", Vector3.new(0.4,10,10), B+Vector3.new(25,5,25), Color3.fromRGB(0,255,0), Enum.Material.Neon, b)
     exitPortal.Shape = Enum.PartType.Cylinder
     exitPortal.CFrame = CFrame.new(B+Vector3.new(25,5,25))*CFrame.Angles(0,0,math.rad(90))
@@ -453,9 +467,9 @@ local function Create()
             if hrp then hrp.CFrame = CFrame.new(SavedPos or Vector3.new(0,5,0)) end
         end
     end)
-    
+
     b.Parent = workspace
-    print("[Barny] Бункер v29 загружен")
+    print("[Barny] Бункер v30 загружен")
 end
 
 UIS.InputBegan:Connect(function(i, gp)
@@ -498,4 +512,4 @@ btn.MouseButton1Click:Connect(function()
     TP(B+Vector3.new(0,5,0))
 end)
 
-print("[Barny] v29 загружен")
+print("[Barny] v30 загружен (стол + КД порталов)")
